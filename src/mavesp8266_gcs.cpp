@@ -143,7 +143,7 @@ MavESP8266GCS::_readMessage()
                         mavlink_command_long_t cmd;
                         mavlink_msg_command_long_decode(&_message, &cmd);
                         if(cmd.target_component == MAV_COMP_ID_ALL || cmd.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                            _handleCmdLong(&cmd);
+                            _handleCmdLong(&cmd, cmd.target_component);
                             //-- If it was directed to us, eat it and loop
                             if(cmd.target_component == MAV_COMP_ID_UDP_BRIDGE) {
                                 //-- Eat message (don't send it to FC)
@@ -214,6 +214,7 @@ MavESP8266GCS::sendMessage(mavlink_message_t* message, int count) {
         _status.packets_sent++;
     }
     _udp.endPacket();
+    delay(0);
 }
 
 //---------------------------------------------------------------------------------
@@ -229,7 +230,7 @@ void
 MavESP8266GCS::_sendRadioStatus()
 {
     linkStatus* st = _forwardTo->getStatus();
-    //-- Build message    
+    //-- Build message
     mavlink_message_t msg;
     mavlink_msg_radio_status_pack(
         _forwardTo->systemID(),
@@ -255,7 +256,7 @@ MavESP8266GCS::_sendStatusMessage(uint8_t type, const char* text)
     if(!getWorld()->getParameters()->getDebugEnabled() && type == MAV_SEVERITY_DEBUG) {
         return;
     }
-    //-- Build message    
+    //-- Build message
     mavlink_message_t msg;
     mavlink_msg_statustext_pack(
         _forwardTo->systemID(),
@@ -371,12 +372,13 @@ MavESP8266GCS::_sendSingleUdpMessage(mavlink_message_t* msg)
     _udp.write((uint8_t*)(void*)buf, len);
     _udp.endPacket();
     _status.packets_sent++;
+    delay(0);
 }
 
 //---------------------------------------------------------------------------------
 //-- Handle Commands
 void
-MavESP8266GCS::_handleCmdLong(mavlink_command_long_t* cmd)
+MavESP8266GCS::_handleCmdLong(mavlink_command_long_t* cmd, uint8_t compID)
 {
     bool reboot = false;
     uint8_t result = MAV_RESULT_UNSUPPORTED;
@@ -403,16 +405,17 @@ MavESP8266GCS::_handleCmdLong(mavlink_command_long_t* cmd)
         }
     }
     //-- Response
-    mavlink_message_t msg;
-    mavlink_msg_command_ack_pack(
-        _forwardTo->systemID(),
-        MAV_COMP_ID_UDP_BRIDGE,
-        &msg,
-        cmd->command,
-        result
-    );
-    _sendSingleUdpMessage(&msg);
-    delay(0);
+    if(compID == MAV_COMP_ID_UDP_BRIDGE) {
+        mavlink_message_t msg;
+        mavlink_msg_command_ack_pack(
+            _forwardTo->systemID(),
+            MAV_COMP_ID_UDP_BRIDGE,
+            &msg,
+            cmd->command,
+            result
+        );
+        _sendSingleUdpMessage(&msg);
+    }
     if(reboot) {
         _wifiReboot();
     }
