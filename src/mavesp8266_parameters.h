@@ -38,8 +38,11 @@
 #ifndef MAVESP8266_PARAMETERS_H
 #define MAVESP8266_PARAMETERS_H
 
-//-- Constants
+#define WIFI_MODE_AP 0
+#define WIFI_MODE_STA 1
 
+//-- Constants
+#define DEFAULT_WIFI_MODE       WIFI_MODE_AP
 #define DEFAULT_UART_SPEED      921600
 #define DEFAULT_WIFI_CHANNEL    11
 #define DEFAULT_UDP_HPORT       14550
@@ -61,9 +64,11 @@ public:
     enum {
         ID_FWVER = 0,
         ID_DEBUG,
+        ID_MODE,
         ID_CHANNEL,
         ID_HPORT,
         ID_CPORT,
+        ID_IPADDRESS,
         ID_SSID1,
         ID_SSID2,
         ID_SSID3,
@@ -72,6 +77,17 @@ public:
         ID_PASS2,
         ID_PASS3,
         ID_PASS4,
+        ID_SSIDSTA1,
+        ID_SSIDSTA2,
+        ID_SSIDSTA3,
+        ID_SSIDSTA4,
+        ID_PASSSTA1,
+        ID_PASSSTA2,
+        ID_PASSSTA3,
+        ID_PASSSTA4,
+        ID_IPSTA,
+        ID_GATEWAYSTA,
+        ID_SUBNETSTA,
         ID_UART,
         ID_COUNT
     };
@@ -84,23 +100,36 @@ public:
 
     uint32_t    getSwVersion                ();
     int8_t      getDebugEnabled             ();
+    int8_t      getWifiMode                 ();
     uint32_t    getWifiChannel              ();
     uint16_t    getWifiUdpHport             ();
     uint16_t    getWifiUdpCport             ();
     char*       getWifiSsid                 ();
     char*       getWifiPassword             ();
+    char*       getWifiStaSsid              ();
+    char*       getWifiStaPassword          ();
+    uint32_t    getWifiStaIP                ();
+    uint32_t    getWifiStaGateway           ();
+    uint32_t    getWifiStaSubnet            ();
     uint32_t    getUartBaudRate             ();
 
     void        setDebugEnabled             (int8_t enabled);
+    void        setWifiMode                 (int8_t mode);
     void        setWifiChannel              (uint32_t channel);
     void        setWifiUdpHport             (uint16_t port);
     void        setWifiUdpCport             (uint16_t port);
     void        setWifiSsid                 (const char* ssid);
     void        setWifiPassword             (const char* pwd);
+    void        setWifiStaSsid              (const char* ssid);
+    void        setWifiStaPassword          (const char* pwd);
+    void        setWifiStaIP                (uint32_t addr);
+    void        setWifiStaGateway           (uint32_t addr);
+    void        setWifiStaSubnet            (uint32_t addr);
     void        setUartBaudRate             (uint32_t baud);
+    void        setLocalIPAddress           (uint32_t ipAddress);
 
     stMavEspParameters* getAt               (int index);
-    
+
 private:
     uint32_t    _crc32part                  (uint8_t* value, uint32_t len, uint32_t crc);
     uint32_t    _getEepromCrc               ();

@@ -21,24 +21,34 @@ This will show the current comm link status.
 
 http://192.168.4.1/setparameters?key=value&key=value
 
-This will allow you to set any parameter to the specified value. Once set, the values are stored in non volatile memory (EEPROM) but will only take effect once you reboot it. Use this with caution as you may lock yourself out. For instance, if you change the AP password and don't remember later, currently there is no way to reset it other than reflashing the firmware. Also note that there is no validation done to the values entered. 
+This will allow you to set any parameter to the specified value. Once set, the values are stored in non volatile memory (EEPROM) but will only take effect once you reboot it. Use this with caution as you may lock yourself out. For instance, if you change the AP password and don't remember later, currently you must either trigger the reset pin (see README) or reflash the module in order to revert the parameters. Also note that there is no validation done to the values entered. 
 
 There are the supported parameters:
 
 | Key  | Default Value | Description | Example |
 | ------------- | -------------- | -------------- | -------------- |
 | baud  | 921600 | UAS UART Link Baud Rate | http://192.168.4.1/setparameters?baud=921600 |
-| pwd | pixracer  | WiFi AP Password | http://192.168.4.1/setparameters?pwd=pixracer |
-| ssid | PixRacer  | WiFi AP SSID | http://192.168.4.1/setparameters?ssid=PixRacer |
-| cport | 14555  | Local UDP Port | http://192.168.4.1/setparameters?cport=14555 |
-| hport | 14550  | GCS UDP Port | http://192.168.4.1/setparameters?hport=14550 |
 | channel | 11  | AP WiFi Channel | http://192.168.4.1/setparameters?channel=11 |
+| cport | 14555  | Local UDP Port | http://192.168.4.1/setparameters?cport=14555 |
 | debug | 0  | Enable Debug Messages | http://192.168.4.1/setparameters?debug=0 |
+| hport | 14550  | GCS UDP Port | http://192.168.4.1/setparameters?hport=14550 |
+| mode | 0  | Set to AP Mode (0) or Station Mode (1) | http://192.168.4.1/setparameters?mode=1 |
+| pwd | pixracer  | WiFi AP Password | http://192.168.4.1/setparameters?pwd=pixracer |
+| pwdsta | PixRacer  | WiFi STA Password | http://192.168.4.1/setparameters?pwdsta=PixRacer |
 | reboot | 0  | Reboot the WiFi Bridge | http://192.168.4.1/setparameters?reboot=1 |
+| ssid | PixRacer  | WiFi AP SSID | http://192.168.4.1/setparameters?ssid=PixRacer |
+| ssidsta | PixRacer  | WiFi STA SSID | http://192.168.4.1/setparameters?ssidsta=PixRacer |
+| ipsta | 0.0.0.0 | Wifi STA Static IP | http://192.168.4.1/setparameters?ipsta=192.168.4.2 |
+| gatewaysta | 0.0.0.0 | Wifi STA Gateway | http://192.168.4.1/setparameters?gatewaysta=192.168.4.1 |
+| subnetsta | 0.0.0.0 | Wifi STA Subnet | http://192.168.4.1/setparameters?subnetsta=255.255.255.0 |
 
 You can combine any number of parameters into one request. For example:
 
 http://192.168.4.1/setparameters?baud=921600&channel=9&reboot=1
+
+To connect to a typical existing network with a static ip:
+
+http://192.168.4.1/setparameters?mode=1&ssidsta=networkname&pwdsta=thepassword&ipsta=192.168.1.123&gatewaysta=192.168.1.1&subnetsta=255.255.255.0
 
 ##### Upload New Firmware
 

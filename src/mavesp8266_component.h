@@ -29,45 +29,40 @@
  ****************************************************************************/
 
 /**
- * @file mavesp8266_vehicle.h
+ * @file mavesp8266_component.h
  * ESP8266 Wifi AP, MavLink UART/UDP Bridge
  *
  * @author Gus Grubba <mavlink@grubba.com>
  */
 
-#ifndef MAVESP8266_VEHICLE_H
-#define MAVESP8266_VEHICLE_H
+#ifndef MAVESP8266_COMPONENT_H
+#define MAVESP8266_COMPONENT_H
 
 #include "mavesp8266.h"
 
-//-- UDP Outgoing Packet Queue
-#define UAS_QUEUE_SIZE          60
-#define UAS_QUEUE_THRESHOLD     20
-#define UAS_QUEUE_TIMEOUT       5 // 5ms
-
-class MavESP8266Vehicle : public MavESP8266Bridge {
+class MavESP8266Component {
 public:
-    MavESP8266Vehicle();
+    MavESP8266Component();
 
-    void    begin           (MavESP8266Bridge* forwardTo);
-    void    readMessage     ();
-    void    readMessageRaw  ();
-    int     sendMessage     (mavlink_message_t* message, int count);
-    int     sendMessage     (mavlink_message_t* message);
-    int     sendMessagRaw   (uint8_t *buffer, int len);
-    linkStatus* getStatus   ();
-
-protected:
-    void    _sendRadioStatus();
+    //- Returns true if the component consumed the message
+    bool handleMessage        (MavESP8266Bridge* sender, mavlink_message_t* message);
+    bool inRawMode            ();
+    void resetRawMode         () { _in_raw_mode_time = millis(); }
 
 private:
-    bool    _readMessage    ();
+    void    _sendStatusMessage      (MavESP8266Bridge* sender, uint8_t type, const char* text);
+    void    _handleParamSet         (MavESP8266Bridge* sender, mavlink_param_set_t* param);
+    void    _handleParamRequestList (MavESP8266Bridge* sender);
+    void    _handleParamRequestRead (MavESP8266Bridge* sender, mavlink_param_request_read_t* param);
+    void    _sendParameter          (MavESP8266Bridge* sender, uint16_t index);
+    void    _sendParameter          (MavESP8266Bridge* sender, const char* id, uint32_t value, uint16_t index);
 
-private:
-    int                     _queue_count;
-    unsigned long           _queue_time;
-    float                   _buffer_status;
-    mavlink_message_t       _message[UAS_QUEUE_SIZE];
+    void    _handleCmdLong          (MavESP8266Bridge* sender, mavlink_command_long_t* cmd, uint8_t compID);
+
+    void    _wifiReboot             (MavESP8266Bridge* sender);
+
+    bool            _in_raw_mode;
+    unsigned long   _in_raw_mode_time;
 };
 
 #endif

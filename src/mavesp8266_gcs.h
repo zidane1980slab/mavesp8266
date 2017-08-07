@@ -46,22 +46,17 @@ public:
 
     void    begin                   (MavESP8266Bridge* forwardTo, IPAddress gcsIP);
     void    readMessage             ();
-    void    sendMessage             (mavlink_message_t* message, int count);
-    void    sendMessage             (mavlink_message_t* message);
+    void    readMessageRaw          ();
+    int     sendMessage             (mavlink_message_t* message, int count);
+    int     sendMessage             (mavlink_message_t* message);
+    int     sendMessagRaw           (uint8_t *buffer, int len);
+protected:
+    void    _sendRadioStatus        ();
 
 private:
     bool    _readMessage            ();
-    void    _sendRadioStatus        ();
-    void    _sendStatusMessage      (uint8_t type, const char* text);
-    void    _handleParamSet         (mavlink_param_set_t* param);
-    void    _handleParamRequestList ();
-    void    _handleParamRequestRead (mavlink_param_request_read_t* param);
-    void    _sendParameter          (uint16_t index);
-    void    _sendParameter          (const char* id, uint32_t value, uint16_t index);
     void    _sendSingleUdpMessage   (mavlink_message_t* msg);
     void    _checkUdpErrors         (mavlink_message_t* msg);
-    void    _handleCmdLong          (mavlink_command_long_t* cmd, uint8_t compID);
-    void    _wifiReboot             ();
 
 private:
     WiFiUDP             _udp;

@@ -54,12 +54,18 @@ const char PROGMEM kAPPJSON[]    = "application/json";
 const char* kBAUD       = "baud";
 const char* kPWD        = "pwd";
 const char* kSSID       = "ssid";
+const char* kPWDSTA     = "pwdsta";
+const char* kSSIDSTA    = "ssidsta";
+const char* kIPSTA      = "ipsta";
+const char* kGATESTA    = "gatewaysta";
+const char* kSUBSTA     = "subnetsta";
 const char* kCPORT      = "cport";
 const char* kHPORT      = "hport";
 const char* kCHANNEL    = "channel";
 const char* kDEBUG      = "debug";
 const char* kREBOOT     = "reboot";
 const char* kPOSITION   = "position";
+const char* kMODE       = "mode";
 
 const char* kFlashMaps[7] = {
     "512KB (256/256)",
@@ -234,13 +240,13 @@ void handle_getStatus()
 //---------------------------------------------------------------------------------
 void handle_getJLog()
 {
-    uint32_t position = 0;
+    uint32_t position = 0, len;
     if(webServer.hasArg(kPOSITION)) {
         position = webServer.arg(kPOSITION).toInt();
     }
-    String logText = getWorld()->getLogger()->getLog(position);
+    String logText = getWorld()->getLogger()->getLog(&position, &len);
     char jStart[128];
-    snprintf(jStart, 128, "{\"len\":%d, \"start\":%d, \"text\": \"", logText.length(), position);
+    snprintf(jStart, 128, "{\"len\":%d, \"start\":%d, \"text\": \"", len, position);
     String payLoad = jStart;
     payLoad += logText;
     payLoad += "\"}";
@@ -270,7 +276,7 @@ void handle_getJSysInfo()
         fid & 0xff, (fid & 0xff00) | ((fid >> 16) & 0xff),
         flash,
         ESP.getFreeHeap(),
-        getWorld()->getLogger()->getLogSize(),
+        getWorld()->getLogger()->getPosition(),
         paramCRC
     );
     webServer.send(200, "application/json", message);
@@ -298,7 +304,8 @@ void handle_getJSysStatus()
         "\"vpackets\": \"%u\", "
         "\"vsent\": \"%u\", "
         "\"vlost\": \"%u\", "
-        "\"radio\": \"%u\""
+        "\"radio\": \"%u\", "
+        "\"buffer\": \"%u\""
         " }",
         gcsStatus->packets_received,
         gcsStatus->packets_sent,
@@ -306,7 +313,8 @@ void handle_getJSysStatus()
         vehicleStatus->packets_received,
         vehicleStatus->packets_sent,
         vehicleStatus->packets_lost,
-        gcsStatus->radio_status_sent
+        gcsStatus->radio_status_sent,
+        vehicleStatus->queue_status
     );
     webServer.send(200, "application/json", message);
 }
@@ -332,6 +340,29 @@ void handle_setParameters()
         ok = true;
         getWorld()->getParameters()->setWifiSsid(webServer.arg(kSSID).c_str());
     }
+    if(webServer.hasArg(kPWDSTA)) {
+        ok = true;
+        getWorld()->getParameters()->setWifiStaPassword(webServer.arg(kPWDSTA).c_str());
+    }
+    if(webServer.hasArg(kSSIDSTA)) {
+        ok = true;
+        getWorld()->getParameters()->setWifiStaSsid(webServer.arg(kSSIDSTA).c_str());
+    }
+    if(webServer.hasArg(kIPSTA)) {
+        IPAddress ip;
+        ip.fromString(webServer.arg(kIPSTA).c_str());
+        getWorld()->getParameters()->setWifiStaIP(ip);
+    }
+    if(webServer.hasArg(kGATESTA)) {
+        IPAddress ip;
+        ip.fromString(webServer.arg(kGATESTA).c_str());
+        getWorld()->getParameters()->setWifiStaGateway(ip);
+    }
+    if(webServer.hasArg(kSUBSTA)) {
+        IPAddress ip;
+        ip.fromString(webServer.arg(kSUBSTA).c_str());
+        getWorld()->getParameters()->setWifiStaSubnet(ip);
+    }
     if(webServer.hasArg(kCPORT)) {
         ok = true;
         getWorld()->getParameters()->setWifiUdpCport(webServer.arg(kCPORT).toInt());
@@ -347,6 +378,10 @@ void handle_setParameters()
     if(webServer.hasArg(kDEBUG)) {
         ok = true;
         getWorld()->getParameters()->setDebugEnabled(webServer.arg(kDEBUG).toInt());
+    }
+    if(webServer.hasArg(kMODE)) {
+        ok = true;
+        getWorld()->getParameters()->setWifiMode(webServer.arg(kMODE).toInt());
     }
     if(webServer.hasArg(kREBOOT)) {
         ok = true;

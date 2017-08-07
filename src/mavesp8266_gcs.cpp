@@ -38,13 +38,11 @@
 #include "mavesp8266.h"
 #include "mavesp8266_gcs.h"
 #include "mavesp8266_parameters.h"
-
-const char* kHASH_PARAM = "_HASH_CHECK";
+#include "mavesp8266_component.h"
 
 //---------------------------------------------------------------------------------
 MavESP8266GCS::MavESP8266GCS()
     : _udp_port(DEFAULT_UDP_HPORT)
-    , _last_status_time(0)
 {
     memset(&_message, 0, sizeof(_message));
 }
@@ -108,6 +106,10 @@ MavESP8266GCS::_readMessage()
                     //-- First packets
                     if(!_heard_from) {
                         if(_message.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+                            //-- We no longer need DHCP
+                            if(getWorld()->getParameters()->getWifiMode() == WIFI_MODE_AP) {
+                                wifi_softap_dhcps_stop();
+                            }
                             _heard_from      = true;
                             _system_id       = _message.sysid;
                             _component_id    = _message.compid;
@@ -119,70 +121,18 @@ MavESP8266GCS::_readMessage()
                             _last_heartbeat = millis();
                         _checkLinkErrors(&_message);
                     }
+
+
+
                     //-- Check for message we might be interested
-                    //
-                    //   TODO: These response messages need to be queued up and sent as part of the main loop and not all
-                    //   at once from here.
-                    //
-                    //-----------------------------------------------
-                    //-- MAVLINK_MSG_ID_PARAM_SET
-                    if(_message.msgid == MAVLINK_MSG_ID_PARAM_SET) {
-                        mavlink_param_set_t param;
-                        mavlink_msg_param_set_decode(&_message, &param);
-                        DEBUG_LOG("MAVLINK_MSG_ID_PARAM_SET: %u %s\n", param.target_component, param.param_id);
-                        if(param.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                            _handleParamSet(&param);
-                            //-- Eat message (don't send it to FC)
-                            memset(&_message, 0, sizeof(_message));
-                            msgReceived = false;
-                            continue;
-                        }
-                    //-----------------------------------------------
-                    //-- MAVLINK_MSG_ID_COMMAND_LONG
-                    } else if(_message.msgid == MAVLINK_MSG_ID_COMMAND_LONG) {
-                        mavlink_command_long_t cmd;
-                        mavlink_msg_command_long_decode(&_message, &cmd);
-                        if(cmd.target_component == MAV_COMP_ID_ALL || cmd.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                            _handleCmdLong(&cmd, cmd.target_component);
-                            //-- If it was directed to us, eat it and loop
-                            if(cmd.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                                //-- Eat message (don't send it to FC)
-                                memset(&_message, 0, sizeof(_message));
-                                msgReceived = false;
-                                continue;
-                            }
-                        }
-                    //-----------------------------------------------
-                    //-- MAVLINK_MSG_ID_PARAM_REQUEST_LIST
-                    } else if(_message.msgid == MAVLINK_MSG_ID_PARAM_REQUEST_LIST) {
-                        mavlink_param_request_list_t param;
-                        mavlink_msg_param_request_list_decode(&_message, &param);
-                        DEBUG_LOG("MAVLINK_MSG_ID_PARAM_REQUEST_LIST: %u\n", param.target_component);
-                        if(param.target_component == MAV_COMP_ID_ALL || param.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                            _handleParamRequestList();
-                        }
-                    //-----------------------------------------------
-                    //-- MAVLINK_MSG_ID_PARAM_REQUEST_READ
-                    } else if(_message.msgid == MAVLINK_MSG_ID_PARAM_REQUEST_READ) {
-                        mavlink_param_request_read_t param;
-                        mavlink_msg_param_request_read_decode(&_message, &param);
-                        //-- This component or all components?
-                        if(param.target_component == MAV_COMP_ID_ALL || param.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                            //-- If asking for hash, respond and pass through to the UAS
-                            if(strncmp(param.param_id, kHASH_PARAM, MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN) == 0) {
-                                _sendParameter(kHASH_PARAM, getWorld()->getParameters()->paramHashCheck(), 0xFFFF);
-                            } else {
-                                _handleParamRequestRead(&param);
-                                //-- If this was addressed to me only eat message
-                                if(param.target_component == MAV_COMP_ID_UDP_BRIDGE) {
-                                    //-- Eat message (don't send it to FC)
-                                    memset(&_message, 0, sizeof(_message));
-                                    msgReceived = false;
-                                    continue;
-                                }
-                            }
-                        }
+                    if(getWorld()->getComponent()->handleMessage(this, &_message)){
+                        //-- Eat message (don't send it to FC)
+                        memset(&_message, 0, sizeof(_message));
+                        msgReceived = false;
+                        continue;
                     }
+
+
                     //-- Got message, leave
                     break;
                 }
@@ -191,8 +141,11 @@ MavESP8266GCS::_readMessage()
     }
     if(!msgReceived) {
         if(_heard_from && (millis() - _last_heartbeat) > HEARTBEAT_TIMEOUT) {
+            //-- Restart DHCP and start broadcasting again
+            if(getWorld()->getParameters()->getWifiMode() == WIFI_MODE_AP) {
+                wifi_softap_dhcps_start();
+            }
             _heard_from = false;
-            //-- Start broadcasting again
             _ip[3] = 255;
             getWorld()->getLogger()->log("Heartbeat timeout from GCS\n");
         }
@@ -200,28 +153,78 @@ MavESP8266GCS::_readMessage()
     return msgReceived;
 }
 
+void
+MavESP8266GCS::readMessageRaw() {
+    int udp_count = _udp.parsePacket();
+    char buf[1024];
+    int buf_index = 0;
+
+    if(udp_count > 0)
+    {
+        while(buf_index < udp_count)
+        {
+            int result = _udp.read();
+            if (result >= 0)
+            {
+                buf[buf_index] = (char)result;
+                buf_index++;
+            }
+        }
+
+        if (buf[0] == 0x30 && buf[1] == 0x20) {
+            // reboot command, switch out of raw mode soon
+            getWorld()->getComponent()->resetRawMode();
+        }
+
+        _forwardTo->sendMessagRaw((uint8_t*)buf, buf_index);
+    }
+}
+
 //---------------------------------------------------------------------------------
 //-- Forward message(s) to the GCS
-void
+int
 MavESP8266GCS::sendMessage(mavlink_message_t* message, int count) {
+    int sentCount = 0;
     _udp.beginPacket(_ip, _udp_port);
     for(int i = 0; i < count; i++) {
         // Translate message to buffer
         char buf[300];
         unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, &message[i]);
         // Send it
-        _udp.write((uint8_t*)(void*)buf, len);
         _status.packets_sent++;
+        size_t sent = _udp.write((uint8_t*)(void*)buf, len);
+        if(sent != len) {
+            break;
+            //-- Fibble attempt at not losing data until we get access to the socket TX buffer
+            //   status before we try to send.
+            _udp.endPacket();
+            delay(2);
+            _udp.beginPacket(_ip, _udp_port);
+            _udp.write((uint8_t*)(void*)&buf[sent], len - sent);
+            _udp.endPacket();
+            return sentCount;
+        }
+        sentCount++;
     }
     _udp.endPacket();
-    delay(0);
+    return sentCount;
 }
 
 //---------------------------------------------------------------------------------
 //-- Forward message to the GCS
-void
+int
 MavESP8266GCS::sendMessage(mavlink_message_t* message) {
     _sendSingleUdpMessage(message);
+    return 1;
+}
+
+int
+MavESP8266GCS::sendMessagRaw(uint8_t *buffer, int len) {
+    _udp.beginPacket(_ip, _udp_port);
+    size_t sent = _udp.write(buffer, len);
+    _udp.endPacket();
+    //_udp.flush();
+    return sent;
 }
 
 //---------------------------------------------------------------------------------
@@ -230,133 +233,39 @@ void
 MavESP8266GCS::_sendRadioStatus()
 {
     linkStatus* st = _forwardTo->getStatus();
+    uint8_t rssi = 0;
+    uint8_t lostVehicleMessages = 100;
+    uint8_t lostGcsMessages = 100;
+
+    if(wifi_get_opmode() == STATION_MODE) {
+        rssi = (uint8_t)wifi_station_get_rssi();
+    }
+
+    if (st->packets_received > 0) {
+        lostVehicleMessages = (st->packets_lost * 100) / st->packets_received;
+    }
+
+    if (_status.packets_received > 0) {
+        lostGcsMessages = (_status.packets_lost * 100) / _status.packets_received;
+    }
+
     //-- Build message
     mavlink_message_t msg;
     mavlink_msg_radio_status_pack(
         _forwardTo->systemID(),
         MAV_COMP_ID_UDP_BRIDGE,
         &msg,
-        0xff,   // We don't have access to RSSI
-        0xff,   // We don't have access to Remote RSSI
-        st->queue_status, // Outgoing queue status
-        0,      // We don't have access to noise data
-        0,      // We don't have access to remote noise data
-        (uint16_t)(_status.packets_lost / 10),
-        0       // We don't fix anything
+        rssi,                   // RSSI Only valid in STA mode
+        0,                      // We don't have access to Remote RSSI
+        st->queue_status,       // UDP queue status
+        0,                      // We don't have access to noise data
+        lostVehicleMessages,    // Percent of lost messages from Vehicle (UART)
+        lostGcsMessages,        // Percent of lost messages from GCS (UDP)
+        0                       // We don't fix anything
     );
+
     _sendSingleUdpMessage(&msg);
     _status.radio_status_sent++;
-}
-
-//---------------------------------------------------------------------------------
-//-- Send Debug Message
-void
-MavESP8266GCS::_sendStatusMessage(uint8_t type, const char* text)
-{
-    if(!getWorld()->getParameters()->getDebugEnabled() && type == MAV_SEVERITY_DEBUG) {
-        return;
-    }
-    //-- Build message
-    mavlink_message_t msg;
-    mavlink_msg_statustext_pack(
-        _forwardTo->systemID(),
-        MAV_COMP_ID_UDP_BRIDGE,
-        &msg,
-        type,
-        text
-    );
-    _sendSingleUdpMessage(&msg);
-}
-
-//---------------------------------------------------------------------------------
-//-- Set parameter
-void
-MavESP8266GCS::_handleParamSet(mavlink_param_set_t* param)
-{
-    for(int i = 0; i < MavESP8266Parameters::ID_COUNT; i++) {
-        //-- Find parameter
-        if(strncmp(param->param_id, getWorld()->getParameters()->getAt(i)->id, strlen(getWorld()->getParameters()->getAt(i)->id)) == 0) {
-            //-- Skip Read Only
-            if(!getWorld()->getParameters()->getAt(i)->readOnly) {
-                //-- Set new value
-                memcpy(getWorld()->getParameters()->getAt(i)->value, &param->param_value, getWorld()->getParameters()->getAt(i)->length);
-            }
-            //-- "Ack" it
-            _sendParameter(getWorld()->getParameters()->getAt(i)->index);
-            return;
-        }
-    }
-}
-
-//---------------------------------------------------------------------------------
-//-- Handle Parameter Request List
-void
-MavESP8266GCS::_handleParamRequestList()
-{
-    for(int i = 0; i < MavESP8266Parameters::ID_COUNT; i++) {
-        _sendParameter(getWorld()->getParameters()->getAt(i)->index);
-        delay(0);
-    }
-}
-
-//---------------------------------------------------------------------------------
-//-- Handle Parameter Request Read
-void
-MavESP8266GCS::_handleParamRequestRead(mavlink_param_request_read_t* param)
-{
-    for(int i = 0; i < MavESP8266Parameters::ID_COUNT; i++) {
-        //-- Find parameter
-        if(param->param_index == getWorld()->getParameters()->getAt(i)->index || strncmp(param->param_id, getWorld()->getParameters()->getAt(i)->id, strlen(getWorld()->getParameters()->getAt(i)->id)) == 0) {
-            _sendParameter(getWorld()->getParameters()->getAt(i)->index);
-            return;
-        }
-    }
-}
-
-//---------------------------------------------------------------------------------
-//-- Send Parameter (Index Based)
-void
-MavESP8266GCS::_sendParameter(uint16_t index)
-{
-    //-- Build message
-    mavlink_param_value_t msg;
-    msg.param_count = MavESP8266Parameters::ID_COUNT;
-    msg.param_index = index;
-    strncpy(msg.param_id, getWorld()->getParameters()->getAt(index)->id, MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN);
-    uint32_t val = 0;
-    memcpy(&val, getWorld()->getParameters()->getAt(index)->value, getWorld()->getParameters()->getAt(index)->length);
-    memcpy(&msg.param_value, &val, sizeof(uint32_t));
-    msg.param_type = getWorld()->getParameters()->getAt(index)->type;
-    mavlink_message_t mmsg;
-    mavlink_msg_param_value_encode(
-        _forwardTo->systemID(),
-        MAV_COMP_ID_UDP_BRIDGE,
-        &mmsg,
-        &msg
-    );
-    _sendSingleUdpMessage(&mmsg);
-}
-
-//---------------------------------------------------------------------------------
-//-- Send Parameter (Raw)
-void
-MavESP8266GCS::_sendParameter(const char* id, uint32_t value, uint16_t index)
-{
-    //-- Build message
-    mavlink_param_value_t msg;
-    msg.param_count = MavESP8266Parameters::ID_COUNT;
-    msg.param_index = index;
-    strncpy(msg.param_id, id, MAVLINK_MSG_PARAM_VALUE_FIELD_PARAM_ID_LEN);
-    memcpy(&msg.param_value, &value, sizeof(uint32_t));
-    msg.param_type = MAV_PARAM_TYPE_UINT32;
-    mavlink_message_t mmsg;
-    mavlink_msg_param_value_encode(
-        _forwardTo->systemID(),
-        MAV_COMP_ID_UDP_BRIDGE,
-        &mmsg,
-        &msg
-    );
-    _sendSingleUdpMessage(&mmsg);
 }
 
 //---------------------------------------------------------------------------------
@@ -369,64 +278,15 @@ MavESP8266GCS::_sendSingleUdpMessage(mavlink_message_t* msg)
     unsigned len = mavlink_msg_to_send_buffer((uint8_t*)buf, msg);
     // Send it
     _udp.beginPacket(_ip, _udp_port);
-    _udp.write((uint8_t*)(void*)buf, len);
+    size_t sent = _udp.write((uint8_t*)(void*)buf, len);
     _udp.endPacket();
+    //-- Fibble attempt at not losing data until we get access to the socket TX buffer
+    //   status before we try to send.
+    if(sent != len) {
+        delay(1);
+        _udp.beginPacket(_ip, _udp_port);
+        _udp.write((uint8_t*)(void*)&buf[sent], len - sent);
+        _udp.endPacket();
+    }
     _status.packets_sent++;
-    delay(0);
-}
-
-//---------------------------------------------------------------------------------
-//-- Handle Commands
-void
-MavESP8266GCS::_handleCmdLong(mavlink_command_long_t* cmd, uint8_t compID)
-{
-    bool reboot = false;
-    uint8_t result = MAV_RESULT_UNSUPPORTED;
-    if(cmd->command == MAV_CMD_PREFLIGHT_STORAGE) {
-        //-- Read from EEPROM
-        if((uint8_t)cmd->param1 == 0) {
-            result = MAV_RESULT_ACCEPTED;
-            getWorld()->getParameters()->loadAllFromEeprom();
-        //-- Write to EEPROM
-        } else if((uint8_t)cmd->param1 == 1) {
-            result = MAV_RESULT_ACCEPTED;
-            getWorld()->getParameters()->saveAllToEeprom();
-            delay(0);
-        //-- Restore defaults
-        } else if((uint8_t)cmd->param1 == 2) {
-            result = MAV_RESULT_ACCEPTED;
-            getWorld()->getParameters()->resetToDefaults();
-        }
-    } else if(cmd->command == MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN) {
-        //-- Reset "Companion Computer"
-        if((uint8_t)cmd->param2 == 1) {
-            result = MAV_RESULT_ACCEPTED;
-            reboot = true;
-        }
-    }
-    //-- Response
-    if(compID == MAV_COMP_ID_UDP_BRIDGE) {
-        mavlink_message_t msg;
-        mavlink_msg_command_ack_pack(
-            _forwardTo->systemID(),
-            MAV_COMP_ID_UDP_BRIDGE,
-            &msg,
-            cmd->command,
-            result
-        );
-        _sendSingleUdpMessage(&msg);
-    }
-    if(reboot) {
-        _wifiReboot();
-    }
-}
-
-//---------------------------------------------------------------------------------
-//-- Reboot
-void
-MavESP8266GCS::_wifiReboot()
-{
-    _sendStatusMessage(MAV_SEVERITY_NOTICE, "Rebooting WiFi Bridge.");
-    delay(50);
-    ESP.reset();
 }
